@@ -33,7 +33,6 @@ class LibraryAudio {
   // Music state machine. [_musicGen] is bumped by every start/stop request;
   // async work checks it still owns the latest generation before touching
   // the player, so overlapping requests can never desync the music.
-  int _musicGen = 0;
   bool _musicBusy = false;
   String? _currentTrack; // 'menu' | 'game' | null
   bool _pausedByLifecycle = false;
