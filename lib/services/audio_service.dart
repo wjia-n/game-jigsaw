@@ -30,7 +30,6 @@ class LibraryAudio {
   // Cache synthesized clips so we only build them once.
   final Map<String, Uint8List> _cache = {};
 
-  // Music state machine. [_musicGen] is bumped by every start/stop request;
   // async work checks it still owns the latest generation before touching
   // the player, so overlapping requests can never desync the music.
   bool _musicBusy = false;
@@ -286,7 +285,6 @@ class LibraryAudio {
   /// App-scoped stop: cancels any pending start, then stops. Used only when
   /// the user turns music OFF — never on screen navigation.
   Future<void> stopMusic() async {
-    ++_musicGen; // cancel any in-flight start
     while (_musicBusy) {
       await Future.delayed(const Duration(milliseconds: 30));
     }
