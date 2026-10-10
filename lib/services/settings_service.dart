@@ -39,7 +39,7 @@ class JigsawSettings extends ChangeNotifier {
   int lastMode = 0; // 0 classic, 1 timed, 2 relaxed, 3 daily
   int lastPieceCount = 48;
   int lastPictureId = 0;
-  bool isPro = false;
+  bool isPro = true; // everything unlocked — no Pro version
   int wins = 0;
   Set<String> dailyDone = {};
 
@@ -112,7 +112,7 @@ class JigsawSettings extends ChangeNotifier {
     lastMode = (p.getInt(_kLastMode) ?? 0).clamp(0, 3);
     lastPieceCount = p.getInt(_kLastCount) ?? 48;
     lastPictureId = p.getInt(_kLastPicture) ?? 0;
-    isPro = p.getBool(_kIsPro) ?? false;
+    isPro = true; // everything unlocked
     wins = p.getInt(_kWins) ?? 0;
     dailyDone = Set.of(p.getStringList(_kDaily) ?? const []);
     for (final k in _defaultCustomColors.keys) {

@@ -433,6 +433,7 @@ class JigsawEngine extends ChangeNotifier {
     // (RULES.md Section 12: final-piece-from-tray victory).
     final radius = snapRadiusFraction * cell;
     int? bestPiece;
+    int? bestTargetCid; // cluster of the exact piece we snapped onto
     Offset? bestDelta;
     var bestDist = double.infinity;
     for (final id in dragged) {
@@ -448,6 +449,7 @@ class JigsawEngine extends ChangeNotifier {
         if (d <= radius && d < bestDist) {
           bestDist = d;
           bestPiece = id;
+          bestTargetCid = q.clusterId;
           bestDelta = Offset(ex - p.x, ey - p.y);
         }
       }
@@ -463,7 +465,9 @@ class JigsawEngine extends ChangeNotifier {
         p.inTray = false;
       }
       final anchorPiece = piece(bestPiece);
-      final otherCid = _neighborClusterOf(anchorPiece, dragged);
+      // Merge with the cluster of the exact piece we snapped onto
+      // (not just any neighbor — that stuck pieces to the wrong cluster).
+      final otherCid = bestTargetCid;
       final myCid = anchorPiece.clusterId;
       final merged = <int>[];
       if (otherCid != null && otherCid != myCid) {
@@ -526,17 +530,7 @@ class JigsawEngine extends ChangeNotifier {
   }
 
   /// The cluster id of a correct neighbor of [anchor] that is NOT in
-  /// [dragged] (the group we are snapping onto).
-  int? _neighborClusterOf(JigsawPiece anchor, Set<int> dragged) {
-    for (final n in _gridNeighbors(anchor)) {
-      if (dragged.contains(n)) continue;
-      final q = piece(n);
-      if (q.inTray) continue;
-      return q.clusterId;
-    }
-    return null;
-  }
-
+  
   bool _checkFrameComplete() {
     if (frameAnnounced) return false;
     int? cid;
