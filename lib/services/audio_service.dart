@@ -279,37 +279,6 @@ class LibraryAudio {
       _clip('timeup', () => _tone(220, 0.5, freqEnd: 165, harmonics: 0.4)));
 
   // ----------------------------------------------------------------- music
-  /// Start (or keep) a music track. Generation-serialized: the latest request
-  /// always wins; a start issued while an older one is in flight is never
-  /// dropped. Re-requesting the current track just ensures it is audible.
-  Future<void> _startTrack(String track, Uint8List Function() bytes) async {
-    if (_disposed) return;
-    final gen = ++_musicGen;
-    if (_currentTrack == track && !_pausedByLifecycle) {
-      // Already on this track — make sure it is actually audible.
-      try {
-        await _music.resume();
-      } catch (_) {}
-      return;
-    }
-    // Wait for any in-flight op, then bail if superseded meanwhile.
-    while (_musicBusy) {
-      await Future.delayed(const Duration(milliseconds: 30));
-    }
-    if (gen != _musicGen || _disposed || !musicOn) return;
-    _musicBusy = true;
-    try {
-      await _music.stop();
-      if (gen != _musicGen || _disposed || !musicOn) return;
-      _currentTrack = track;
-      _pausedByLifecycle = false;
-      await _music.play(BytesSource(bytes()));
-    } catch (_) {
-      if (gen == _musicGen) _currentTrack = null;
-    } finally {
-      _musicBusy = false;
-    }
-  }
 
   // BGM disabled per user request 2026-10-10 — SFX only.
   Future<void> startMenuMusic() async {}
