@@ -369,6 +369,8 @@ class _GameScreenState extends State<GameScreen>
     if (_e.phase == JigsawPhase.playing) {
       _e.pauseGame();
       setState(() => _showPause = true);
+    } else if (_e.phase == JigsawPhase.paused) {
+      _resume();
     }
   }
 

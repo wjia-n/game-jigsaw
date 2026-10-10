@@ -311,8 +311,9 @@ class LibraryAudio {
     }
   }
 
-  Future<void> startMenuMusic() => _startTrack('menu', _menuBytes);
-  Future<void> startGameMusic() => _startTrack('game', _gameBytes);
+  // BGM disabled per user request 2026-10-10 — SFX only.
+  Future<void> startMenuMusic() async {}
+  Future<void> startGameMusic() async {}
 
   /// App-scoped stop: cancels any pending start, then stops. Used only when
   /// the user turns music OFF — never on screen navigation.
