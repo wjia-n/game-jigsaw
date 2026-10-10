@@ -133,4 +133,6 @@ class StoreService {
     purchaseInProgress.dispose();
     purchaseError.dispose();
   }
+
+  Future<void> buyPro() async {}
 }
