@@ -41,6 +41,28 @@ class _GameScreenState extends State<GameScreen>
   double _scale = 1.0;
   double _baseScale = 1.0;
   Offset _pan = Offset.zero;
+  bool _didFit = false;
+  // Last known mat area size (for zoom-to-fit button outside LayoutBuilder).
+  double _lastAreaW = 0;
+  double _lastAreaH = 0;
+
+  /// Fit the puzzle centered in the given area. Call on first layout and
+  /// when the user taps the zoom-to-fit button.
+  void _fitPuzzle(double areaW, double areaH) {
+    final e = _e;
+    if (e.puzzleW <= 0 || e.puzzleH <= 0 || areaW <= 0 || areaH <= 0) return;
+    _baseScale =
+        (areaW / e.puzzleW < areaH / e.puzzleH
+                ? areaW / e.puzzleW
+                : areaH / e.puzzleH) *
+            0.94;
+    _scale = _baseScale;
+    _pan = Offset(
+      (areaW - e.puzzleW * _scale) / 2,
+      (areaH - e.puzzleH * _scale) / 2,
+    );
+    _didFit = true;
+  }
 
   // Gesture state machine.
   bool _pieceDragging = false;
@@ -342,9 +364,23 @@ class _GameScreenState extends State<GameScreen>
     final id = _e.useHint();
     if (id == null) {
       widget.audio.invalid();
+      // Tell the user why the hint didn't work.
+      _toast = _e.phase != JigsawPhase.playing
+          ? 'Hints work during play'
+          : 'No hints left';
+      _toastCtrl.forward(from: 0);
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) _toastCtrl.reverse();
+      });
       return;
     }
     widget.audio.hint();
+    // Show a clear toast so the hint is unmissable.
+    _toast = 'Try the glowing piece in the tray!';
+    _toastCtrl.forward(from: 0);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) _toastCtrl.reverse();
+    });
     setState(() => _hintPieceId = id);
     // Scroll the tray to the highlighted piece.
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -571,8 +607,12 @@ class _GameScreenState extends State<GameScreen>
               onTap: () {
                 widget.audio.click();
                 setState(() {
-                  _scale = _baseScale;
-                  _pan = Offset.zero;
+                  // Re-fit centered (not Offset.zero — that shoves to top-left).
+                  if (_lastAreaW > 0 && _lastAreaH > 0) {
+                    _fitPuzzle(_lastAreaW, _lastAreaH);
+                  } else {
+                    _scale = _baseScale;
+                  }
                 });
               }),
         ],
@@ -586,18 +626,12 @@ class _GameScreenState extends State<GameScreen>
       builder: (context, constraints) {
         final areaW = constraints.maxWidth;
         final areaH = constraints.maxHeight;
-        // Fit the puzzle on first layout.
-        if (_baseScale == 1.0 && _pan == Offset.zero) {
-          _baseScale =
-              (areaW / e.puzzleW < areaH / e.puzzleH
-                      ? areaW / e.puzzleW
-                      : areaH / e.puzzleH) *
-                  0.94;
-          _scale = _baseScale;
-          _pan = Offset(
-            (areaW - e.puzzleW * _scale) / 2,
-            (areaH - e.puzzleH * _scale) / 2,
-          );
+        // Remember area size for the zoom-to-fit button.
+        _lastAreaW = areaW;
+        _lastAreaH = areaH;
+        // Fit the puzzle on first layout (centered, filling available space).
+        if (!_didFit) {
+          _fitPuzzle(areaW, areaH);
         }
         final ghost = _pieceDragging ? e.ghostPreview() : null;
         return Container(
