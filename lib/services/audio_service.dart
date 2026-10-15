@@ -18,6 +18,9 @@ import 'package:audioplayers/audioplayers.dart';
 ///   resumes exactly where it left off instead of restarting or dying.
 /// - Every public method catches player errors; audio can never crash the app.
 class LibraryAudio {
+  /// Per-game pitch character (jigsaw): 1.26x. Makes SFX unique.
+  static const double _pitchMul = 1.260;
+
   static const int _rate = 22050;
   final AudioPlayer _sfx = AudioPlayer();
   final AudioPlayer _music = AudioPlayer();
@@ -102,6 +105,8 @@ class LibraryAudio {
 
   List<double> _tone(double freq, double secs,
       {double freqEnd = 0, double attack = 0.02, double harmonics = 0.25}) {
+    freq *= _pitchMul;
+    freqEnd *= _pitchMul;
     final n = (_rate * secs).round();
     final out = List<double>.filled(n, 0);
     for (int i = 0; i < n; i++) {
@@ -200,12 +205,12 @@ class LibraryAudio {
       _cache.putIfAbsent(key, () => _wav(build()));
 
   Uint8List _menuBytes() => _clip('music_menu', () {
-        // Warm Em – C – G – D fireside pad, 16s loop.
+        // A 3 – 0 – 4 – 5 warm pad, 16s loop. Unique to jigsaw.
         final seq = [
-          [164.81, 196.0, 246.94], // Em
-          [261.63, 329.63, 392.0], // C
-          [196.0, 246.94, 293.66], // G
-          [146.83, 220.0, 293.66], // D
+          [293.66, 369.99, 440.00],
+          [220.00, 277.18, 329.63],
+          [329.63, 415.30, 493.88],
+          [369.99, 440.00, 554.37]
         ];
         final out = <double>[];
         for (final chord in seq) {
@@ -214,30 +219,27 @@ class LibraryAudio {
         return out;
       });
 
+
   Uint8List _gameBytes() => _clip('music_game', () {
-        // Gentle music-box plucks over a soft low drone, 12s loop.
-        final drone = _padChord([110.0, 164.81], 12.0);
-        final plucks = [
-          523.25,
-          587.33,
-          659.25,
-          783.99,
-          659.25,
-          587.33,
-          523.25,
-          440.0
-        ];
-        final n = (_rate * 12).round();
-        final out = List<double>.from(drone);
-        for (int k = 0; k < plucks.length; k++) {
-          final start = (n * k / plucks.length).round();
-          final tone = _tone(plucks[k], 0.55, harmonics: 0.3);
-          for (int i = 0; i < tone.length && start + i < n; i++) {
-            out[start + i] += tone[i] * 0.3;
+        // A bass + melody 3 – 0 – 4 – 5, 16s loop. Unique to jigsaw.
+        final bassNotes = [146.83, 110.00, 164.81, 185.00];
+        final melNotes = [880.00, 659.26, 987.76, 1108.74];
+        final out = List<double>.filled((_rate * 16).round(), 0);
+        final segLen = (_rate * 4).round();
+        for (int s = 0; s < 4; s++) {
+          final bass = _tone(bassNotes[s], 3.5, harmonics: 0.4);
+          final mel = _tone(melNotes[s], 1.2, harmonics: 0.25);
+          for (int i = 0; i < bass.length && s * segLen + i < out.length; i++) {
+            out[s * segLen + i] += bass[i] * 0.5;
+          }
+          final melStart = s * segLen + segLen ~/ 4;
+          for (int i = 0; i < mel.length && melStart + i < out.length; i++) {
+            out[melStart + i] += mel[i] * 0.35;
           }
         }
         return out;
       });
+
 
   // ------------------------------------------------------------------ SFX
   Future<void> _play(Uint8List bytes) async {
