@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../cheat_menu.dart';
 import '../engine/jigsaw_engine.dart';
 import '../pictures.dart';
 import '../services/audio_service.dart';
@@ -112,6 +113,19 @@ class _GameScreenState extends State<GameScreen>
     e.onAutosave = _autosave;
     e.start();
     widget.audio.startGameMusic();
+    // Cheat: the infinite-hints flag persists in SharedPreferences — apply
+    // it so the budget survives restarts.
+    CheatMenu.infiniteHints.then((v) {
+      if (v && mounted) setState(() => _e.hintBudget = 999999);
+    });
+    // A cheat (or a restored save) may have left the puzzle fully locked:
+    // drive the victory fanfare instead of stranding the player on a
+    // finished, unplayable board.
+    if (e.isComplete && !e.victoryAnnounced) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) e.forceVictory();
+      });
+    }
     if (widget.isNewGame) {
       // Fresh puzzle: clear any stale save; the new game saves on first snap.
       widget.settings.clearSave();
@@ -225,10 +239,12 @@ class _GameScreenState extends State<GameScreen>
   }
 
   int? _hitPiece(Offset mat) {
-    // Topmost = last in drop order.
+    // Topmost = last in drop order. Locked pieces are part of the board:
+    // touches pass straight through to mat panning.
     final list = _e.matPieces;
     for (int i = list.length - 1; i >= 0; i--) {
       final p = list[i];
+      if (p.locked) continue;
       final bounds = Rect.fromLTWH(
           p.x, p.y, JigsawEngine.cell + JigsawEngine.tabMargin * 2,
           JigsawEngine.cell + JigsawEngine.tabMargin * 2);
@@ -697,6 +713,7 @@ class _GameScreenState extends State<GameScreen>
                                       theme: t,
                                       lifted: _pieceDragging &&
                                           e.dragIds.contains(p.id),
+                                      locked: p.locked,
                                     ),
                                   ),
                                 // Ghost preview of the snap target.

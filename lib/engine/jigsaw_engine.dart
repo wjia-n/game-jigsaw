@@ -25,6 +25,10 @@ class JigsawPiece {
   int clusterId;
   bool inTray;
 
+  /// Permanently seated in its true cell. Locked pieces belong to the
+  /// board: they snap exactly into place and are never draggable again.
+  bool locked;
+
   JigsawPiece({
     required this.id,
     required this.row,
@@ -33,6 +37,7 @@ class JigsawPiece {
     required this.y,
     required this.clusterId,
     this.inTray = true,
+    this.locked = false,
   });
 
   bool isEdgeOf(int rows, int cols) =>
@@ -44,6 +49,7 @@ class JigsawPiece {
         'y': y,
         'c': clusterId,
         't': inTray ? 1 : 0,
+        'l': locked ? 1 : 0,
       };
 }
 
@@ -197,12 +203,15 @@ class JigsawEngine extends ChangeNotifier {
 
   double get completion {
     if (pieces.isEmpty) return 0;
-    var snapped = 0;
+    var placed = 0;
     for (final p in pieces) {
-      if (clusters[p.clusterId]!.length > 1) snapped++;
+      if (p.locked || clusters[p.clusterId]!.length > 1) placed++;
     }
-    return snapped / pieces.length;
+    return placed / pieces.length;
   }
+
+  /// True when every piece is locked into its true cell.
+  bool get isComplete => pieces.every((p) => p.locked);
 
   int get largestClusterSize {
     var m = 0;
@@ -348,14 +357,21 @@ class JigsawEngine extends ChangeNotifier {
 
   /// Begin dragging the cluster containing [pieceId]. Returns the ids of
   /// the whole cluster (they move as one rigid unit — RULES.md Section 4).
+  /// Locked pieces are part of the board and can never be dragged again,
+  /// so a touch on one (or on a cluster containing one) starts no drag.
   Set<int> beginDrag(int pieceId) {
     if (phase != JigsawPhase.playing) return {};
     // Never orphan an in-flight drag: restore it first.
     if (_dragIds.isNotEmpty) cancelDrag();
     noteFirstTouch();
     final p = piece(pieceId);
+    if (p.locked) return {};
     final cid = p.clusterId;
     _dragIds = Set.of(clusters[cid]!);
+    if (_dragIds.any((id) => piece(id).locked)) {
+      _dragIds = {};
+      return {};
+    }
     _dragStart.clear();
     for (final id in _dragIds) {
       final q = piece(id);
@@ -456,6 +472,10 @@ class JigsawEngine extends ChangeNotifier {
     }
 
     moves++;
+    var snapped = false;
+    var merged = <int>[];
+    var flashAt = Offset.zero;
+    var frameDone = false;
     if (bestPiece != null && bestDelta != null) {
       // Snap: shift the whole dragged group into alignment, then merge.
       for (final id in dragged) {
@@ -467,46 +487,96 @@ class JigsawEngine extends ChangeNotifier {
       final anchorPiece = piece(bestPiece);
       // Merge with the cluster of the exact piece we snapped onto
       // (not just any neighbor — that stuck pieces to the wrong cluster).
+      // Locked pieces never move: they keep their board singleton.
       final otherCid = bestTargetCid;
       final myCid = anchorPiece.clusterId;
-      final merged = <int>[];
       if (otherCid != null && otherCid != myCid) {
-        merged.addAll(clusters[otherCid]!);
-        for (final id in clusters[otherCid]!) {
+        for (final id in List.of(clusters[otherCid]!)) {
+          if (piece(id).locked) continue;
           piece(id).clusterId = myCid;
+          clusters[myCid]!.add(id);
+          merged.add(id);
         }
-        clusters[myCid]!.addAll(clusters[otherCid]!);
-        clusters.remove(otherCid);
+        clusters[otherCid]!
+            .removeWhere((id) => piece(id).clusterId == myCid);
+        if (clusters[otherCid]!.isEmpty) clusters.remove(otherCid);
       }
       merged.addAll(dragged);
-      notifyListeners();
+      snapped = true;
+      flashAt =
+          Offset(anchorPiece.x + cell / 2, anchorPiece.y + cell / 2);
       onSnap?.call();
       onAutosave?.call();
-
-      final frameDone = _checkFrameComplete();
-      final won = largestClusterSize == pieces.length;
-      if (won && !victoryAnnounced) {
-        victoryAnnounced = true;
-        phase = JigsawPhase.victory;
-        _clockRunning = false;
-        onVictory?.call();
+      frameDone = _checkFrameComplete();
+    } else {
+      // No snap: the piece simply rests where dropped — stuck to the
+      // board, but still draggable (RULES.md Section 5).
+      for (final id in dragged) {
+        piece(id).inTray = false;
       }
-      return DropResult(
-        snapped: true,
-        mergedPieceIds: merged,
-        victory: won,
-        frameComplete: frameDone,
-        snapFlashAt: Offset(anchorPiece.x + cell / 2, anchorPiece.y + cell / 2),
-      );
+      anchor.inTray = false;
     }
 
-    // No snap: the piece simply rests where dropped (RULES.md Section 5).
+    // Lock pass: any dragged piece now within the snap radius of its TRUE
+    // cell snaps exactly into place and locks permanently — it becomes
+    // part of the board and can never be dragged again.
+    final lockRadius = snapRadiusFraction * cell;
+    var lockedNow = 0;
     for (final id in dragged) {
-      piece(id).inTray = false;
+      final p = piece(id);
+      if (p.locked) continue;
+      final t = _truePos(p);
+      if ((Offset(p.x, p.y) - t).distance <= lockRadius) {
+        p.x = t.dx;
+        p.y = t.dy;
+        p.inTray = false;
+        p.locked = true;
+        _detachFromCluster(p);
+        lockedNow++;
+        if (lockedNow == 1 && !snapped) {
+          flashAt = Offset(
+              t.dx + tabMargin + cell / 2, t.dy + tabMargin + cell / 2);
+        }
+      }
     }
-    anchor.inTray = false;
+    if (lockedNow > 0) {
+      onSnap?.call();
+      onAutosave?.call();
+      frameDone = _checkFrameComplete() || frameDone;
+    }
+
     notifyListeners();
-    return const DropResult(noFit: true);
+    final won = largestClusterSize == pieces.length || isComplete;
+    if (won && !victoryAnnounced) {
+      victoryAnnounced = true;
+      phase = JigsawPhase.victory;
+      _clockRunning = false;
+      onVictory?.call();
+    }
+    return DropResult(
+      snapped: snapped || lockedNow > 0,
+      mergedPieceIds: merged,
+      noFit: !snapped && lockedNow == 0,
+      victory: won,
+      frameComplete: frameDone,
+      snapFlashAt: flashAt,
+    );
+  }
+
+  /// The exact mat position of a piece's true cell: top-left of its
+  /// bounds (including the tab margin), so the printed cell lands exactly
+  /// on the picture grid.
+  Offset _truePos(JigsawPiece p) =>
+      Offset(p.col * cell - tabMargin, p.row * cell - tabMargin);
+
+  /// Remove [p] from its cluster into a locked singleton. Locked pieces
+  /// belong to the board, not to any floating group.
+  void _detachFromCluster(JigsawPiece p) {
+    final set = clusters[p.clusterId];
+    set?.remove(p.id);
+    if (set != null && set.isEmpty) clusters.remove(p.clusterId);
+    p.clusterId = p.id;
+    clusters[p.id] = {p.id};
   }
 
   void _restorePositions(Set<int> dragged, Map<int, Offset> start) {
@@ -529,16 +599,18 @@ class JigsawEngine extends ChangeNotifier {
     return out;
   }
 
-  /// The cluster id of a correct neighbor of [anchor] that is NOT in
-  
+  /// The frame is complete when every edge piece is seated: either all in
+  /// one floating cluster, or all locked into the board (locked pieces
+  /// share one board-wide group).
   bool _checkFrameComplete() {
     if (frameAnnounced) return false;
-    int? cid;
+    String? key;
     for (final p in pieces) {
       if (!p.isEdgeOf(rows, cols)) continue;
       if (p.inTray) return false;
-      cid ??= p.clusterId;
-      if (p.clusterId != cid) return false;
+      final k = p.locked ? 'board' : 'c${p.clusterId}';
+      key ??= k;
+      if (k != key) return false;
     }
     frameAnnounced = true;
     onFrameComplete?.call();
@@ -593,7 +665,68 @@ class JigsawEngine extends ChangeNotifier {
   }
 
   int get hintsLeft =>
-      mode == JigsawMode.relaxed ? 9999 : max(0, hintBudget - hintsUsed);
+      mode == JigsawMode.relaxed || hintBudget > 9000
+          ? 9999
+          : max(0, hintBudget - hintsUsed);
+
+  // ------------------------------------------------------- cheat/debug hooks
+  /// Place the next unlocked piece exactly into its true cell and lock it
+  /// there. Prefers tray pieces, then loose mat pieces. Returns false when
+  /// every piece is already locked.
+  bool cheatPlaceNext() {
+    JigsawPiece? pick;
+    for (final p in pieces) {
+      if (p.locked) continue;
+      pick ??= p;
+      if (p.inTray) {
+        pick = p;
+        break;
+      }
+    }
+    final target = pick;
+    if (target == null) return false;
+    final t = _truePos(target);
+    target.x = t.dx;
+    target.y = t.dy;
+    target.inTray = false;
+    target.locked = true;
+    _detachFromCluster(target);
+    moves++;
+    _checkFrameComplete();
+    notifyListeners();
+    onAutosave?.call();
+    return true;
+  }
+
+  /// Lock every piece exactly into its true cell (instant win).
+  void cheatCompleteAll() {
+    for (final p in pieces) {
+      final t = _truePos(p);
+      p.x = t.dx;
+      p.y = t.dy;
+      p.inTray = false;
+      if (!p.locked) {
+        p.locked = true;
+        _detachFromCluster(p);
+      }
+    }
+    moves++;
+    _checkFrameComplete();
+    notifyListeners();
+    onAutosave?.call();
+  }
+
+  /// Drive the victory transition when a cheat completed the puzzle while
+  /// no game screen was alive to notice (e.g. instant-win from settings,
+  /// then Continue from the menu).
+  void forceVictory() {
+    if (victoryAnnounced || phase == JigsawPhase.victory) return;
+    victoryAnnounced = true;
+    phase = JigsawPhase.victory;
+    _clockRunning = false;
+    notifyListeners();
+    onVictory?.call();
+  }
 
   // ----------------------------------------------------------------- save
   Map<String, dynamic> toJson() {
@@ -608,6 +741,7 @@ class JigsawEngine extends ChangeNotifier {
         'y': s?.dy ?? p.y,
         'c': p.clusterId,
         't': p.inTray ? 1 : 0,
+        'l': p.locked ? 1 : 0,
       });
     }
     return {
@@ -660,12 +794,18 @@ class JigsawEngine extends ChangeNotifier {
         piece.y = (p['y'] as num).toDouble();
         piece.clusterId = p['c'] as int;
         piece.inTray = (p['t'] as int) == 1;
+        piece.locked = (p['l'] as int? ?? 0) == 1; // absent in old saves
         seenCid.add(piece.clusterId);
       }
       // Rebuild clusters from piece assignments.
       e.clusters.clear();
       for (final p in e.pieces) {
         e.clusters.putIfAbsent(p.clusterId, () => <int>{}).add(p.id);
+      }
+      // Locked pieces are always board singletons (repair invariant for
+      // saves written before the rule existed).
+      for (final p in e.pieces) {
+        if (p.locked && p.clusterId != p.id) e._detachFromCluster(p);
       }
       e.elapsedMs = m['elapsedMs'] as int;
       e.moves = m['moves'] as int;

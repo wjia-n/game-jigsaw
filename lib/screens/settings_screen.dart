@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../cheat_menu.dart';
+import '../engine/jigsaw_engine.dart';
 import '../services/audio_service.dart';
 import '../services/iap_service.dart';
 import '../services/settings_service.dart';
@@ -59,6 +61,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  // ------------------------------------------------------- cheat menu
+  // Settings is opened from the menu, so the cheats operate on the saved
+  // puzzle: they decode the save, apply the cheat, and write it back.
+  // Tapping CONTINUE afterwards picks the cheated state right up.
+  CheatCallbacks _cheatCallbacks() {
+    final s = widget.settings;
+    final hasSave = s.hasSave;
+    return CheatCallbacks(
+      onSkipLevel: hasSave
+          ? () => _cheatOnSave(
+                (e) => e.cheatPlaceNext(),
+                'A piece settled itself into place — tap CONTINUE to see.',
+              )
+          : null,
+      onInstantWin: hasSave
+          ? () => _cheatOnSave(
+                (e) {
+                  e.cheatCompleteAll();
+                  return true;
+                },
+                'Puzzle complete — tap CONTINUE for the fanfare.',
+              )
+          : null,
+      // The toggle itself persists in SharedPreferences; the game screen
+      // applies it as a bottomless hint budget on launch.
+      onInfiniteHints: () => _cheatToast(
+          'Infinite hints ON — puzzles will never run out of hints.'),
+      onUnlockAll: () {
+        s.unlockAllPictures();
+        _cheatToast('Every picture in the folio is unlocked.');
+      },
+      onResetGame: hasSave
+          ? () {
+              s.clearSave();
+              _cheatToast(
+                  'Saved puzzle cleared — start fresh from the menu.');
+            }
+          : null,
+    );
+  }
+
+  void _cheatOnSave(
+      bool Function(JigsawEngine) apply, String doneMsg) {
+    final raw = widget.settings.readSave();
+    final engine = raw == null ? null : JigsawEngine.decode(raw);
+    if (engine == null) {
+      _cheatToast('No saved puzzle found.');
+      return;
+    }
+    final changed = apply(engine);
+    if (changed) widget.settings.writeSave(engine.encode());
+    engine.dispose();
+    _cheatToast(changed
+        ? doneMsg
+        : 'Nothing to do — the puzzle is already complete.');
+  }
+
+  void _cheatToast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _confirmReset() {
@@ -383,11 +448,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 10),
                   _SectionTitle('About', t),
-                  Text(
-                    'Jigsaw — Bibliophile Puzzle Sanctuary edition.\nVersion 1.0.0 • Made with ♥ by WAJIHA',
-                    style: Bibliophile.body(13,
-                        theme: t,
-                        color: t.ivory.withValues(alpha: 0.65)),
+                  CheatMenuTrigger(
+                    callbacks: _cheatCallbacks(),
+                    child: Text(
+                      'Jigsaw — Bibliophile Puzzle Sanctuary edition.\nVersion 1.0.0 • Made with ♥ by WAJIHA',
+                      style: Bibliophile.body(13,
+                          theme: t,
+                          color: t.ivory.withValues(alpha: 0.65)),
+                    ),
                   ),
                   const SizedBox(height: 30),
                 ],

@@ -146,4 +146,70 @@ void main() {
     expect(e.starRating(), 3);
     e.dispose();
   });
+
+  test('piece dropped at its true cell locks permanently', () {
+    final e = make();
+    e.start();
+    final p = e.piece(0); // row 0, col 0 -> true pos (-22, -22)
+    e.beginDrag(p.id);
+    final target = Offset(p.col * 100 - 22, p.row * 100 - 22);
+    e.updateDrag(target - Offset(p.x, p.y) + const Offset(5, 0));
+    final r = e.endDrag(
+      matBounds: const Rect.fromLTWH(0, 0, 600, 400),
+      droppedOnTray: false,
+    );
+    expect(r.snapped, isTrue);
+    expect(e.piece(0).locked, isTrue);
+    expect(e.piece(0).x, target.dx);
+    expect(e.piece(0).y, target.dy);
+    // Locked pieces refuse drags: they are part of the board now.
+    expect(e.beginDrag(p.id), isEmpty);
+    expect(e.completion, closeTo(1 / 24, 0.001));
+    e.dispose();
+  });
+
+  test('piece resting away from its true cell stays draggable', () {
+    final e = make();
+    e.start();
+    final p = e.piece(0);
+    e.beginDrag(p.id);
+    e.updateDrag(const Offset(300, 300) - Offset(p.x, p.y));
+    e.endDrag(
+      matBounds: const Rect.fromLTWH(0, 0, 600, 400),
+      droppedOnTray: false,
+    );
+    expect(e.piece(0).locked, isFalse);
+    expect(e.piece(0).inTray, isFalse); // stuck to the board...
+    expect(e.beginDrag(p.id), isNotEmpty); // ...but still draggable
+    e.dispose();
+  });
+
+  test('cheatPlaceNext seats one piece exactly at its true cell', () {
+    final e = make();
+    e.start();
+    expect(e.cheatPlaceNext(), isTrue);
+    final locked = e.pieces.where((p) => p.locked).toList();
+    expect(locked.length, 1);
+    final p = locked.first;
+    expect(p.x, p.col * 100 - 22);
+    expect(p.y, p.row * 100 - 22);
+    expect(p.inTray, isFalse);
+    e.dispose();
+  });
+
+  test('cheatCompleteAll locks everything; save roundtrip keeps locks', () {
+    final e = make();
+    e.start();
+    e.cheatCompleteAll();
+    expect(e.isComplete, isTrue);
+    expect(e.completion, 1.0);
+    final raw = e.encode();
+    final d = JigsawEngine.decode(raw);
+    expect(d, isNotNull);
+    expect(d!.isComplete, isTrue);
+    expect(d.piece(5).locked, isTrue);
+    expect(d.beginDrag(5), isEmpty);
+    e.dispose();
+    d.dispose();
+  });
 }

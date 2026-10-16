@@ -92,6 +92,7 @@ class PiecePainter extends CustomPainter {
   final bool showMark;
   final bool simple; // tray thumbnails skip shadows/bevels
   final bool lifted; // picked up: stronger shadow
+  final bool locked; // seated in its true cell: soft golden seat glow
 
   PiecePainter({
     required this.engine,
@@ -103,6 +104,7 @@ class PiecePainter extends CustomPainter {
     this.showMark = false,
     this.simple = false,
     this.lifted = false,
+    this.locked = false,
   });
 
   @override
@@ -162,6 +164,23 @@ class PiecePainter extends CustomPainter {
             ..strokeWidth = 1.2);
     }
 
+    // 4b. Locked seat: a soft golden rim says "this one lives here now".
+    if (locked) {
+      canvas.drawPath(
+          path,
+          Paint()
+            ..color = theme.accentLight.withValues(alpha: 0.35)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 7
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+      canvas.drawPath(
+          path,
+          Paint()
+            ..color = theme.accentLight.withValues(alpha: 0.75)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.2);
+    }
+
     // 5. Apprentice mark: faint gold-foil dot on the back edge of edge
     // pieces (RULES.md Section 7).
     if (showMark && p.isEdgeOf(engine.rows, engine.cols)) {
@@ -185,6 +204,7 @@ class PiecePainter extends CustomPainter {
       old.cellH != cellH ||
       old.showMark != showMark ||
       old.lifted != lifted ||
+      old.locked != locked ||
       old.theme != theme;
 }
 
@@ -278,6 +298,7 @@ class PieceWidget extends StatelessWidget {
   final bool showMark;
   final bool simple;
   final bool lifted;
+  final bool locked;
 
   const PieceWidget({
     super.key,
@@ -290,6 +311,7 @@ class PieceWidget extends StatelessWidget {
     this.showMark = false,
     this.simple = false,
     this.lifted = false,
+    this.locked = false,
   });
 
   @override
@@ -307,6 +329,7 @@ class PieceWidget extends StatelessWidget {
           showMark: showMark,
           simple: simple,
           lifted: lifted,
+          locked: locked,
         ),
       ),
     );

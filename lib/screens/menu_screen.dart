@@ -575,7 +575,8 @@ class _MenuScreenState extends State<MenuScreen> {
               Text('PICTURE FOLIO', style: Bibliophile.label(13, theme: t)),
               const Spacer(),
               if (!s.isPro)
-                Text('4 more with PRO',
+                Text(
+                    '${PictureFolio.isPro.where((p) => p).length} more with PRO',
                     style: Bibliophile.body(11,
                         theme: t,
                         color: t.accentLight.withValues(alpha: 0.8))),

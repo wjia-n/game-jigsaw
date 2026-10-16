@@ -165,6 +165,11 @@ class JigsawSettings extends ChangeNotifier {
     await _save();
   }
 
+  /// Cheat/debug: unlock every picture in the folio (same as PRO).
+  Future<void> unlockAllPictures() async {
+    await setPro(true);
+  }
+
   Future<void> setCustomColor(String key, int argb) async {
     if (!_defaultCustomColors.containsKey(key)) return;
     customColors[key] = argb;
