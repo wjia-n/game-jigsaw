@@ -8,6 +8,7 @@ import '../theme/bibliophile.dart';
 import '../theme/bibliophile_themes.dart';
 import 'custom_theme_screen.dart';
 import 'pro_screen.dart';
+import '../transfer/transfer_ui.dart';
 
 /// Settings — oak catalog-card-drawer rows, brass-stud toggles and sliders.
 class SettingsScreen extends StatefulWidget {
@@ -195,6 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+              TransferSaveTile(gameSlug: 'jigsaw'),
                   _SectionTitle('Puzzler', t),
                   SettingRow(
                     theme: t,
