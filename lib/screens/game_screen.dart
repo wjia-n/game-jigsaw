@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../cheat_menu.dart';
@@ -57,7 +59,7 @@ class _GameScreenState extends State<GameScreen>
         (areaW / e.puzzleW < areaH / e.puzzleH
                 ? areaW / e.puzzleW
                 : areaH / e.puzzleH) *
-            0.94;
+            0.85;
     _scale = _baseScale;
     _pan = Offset(
       (areaW - e.puzzleW * _scale) / 2,
@@ -86,6 +88,14 @@ class _GameScreenState extends State<GameScreen>
   final _trayKey = GlobalKey();
   bool _engineHandedOff = false;
   int _lastTickSecond = -1;
+  // Tracks the pointer's global position during a tray drag. DragTarget's
+  // onAcceptWithDetails gives the feedback's top-left (pointer minus the
+  // grab offset), NOT the finger position — using it directly misplaces
+  // drops by up to a full tile. We track the real pointer instead.
+  Offset? _lastDragPointer;
+  // Compact tutorial banner: shows briefly, dismisses on tap or timeout.
+  bool _showTutorialHint = true;
+  Timer? _tutorialTimer;
 
   @override
   void initState() {
@@ -127,12 +137,17 @@ class _GameScreenState extends State<GameScreen>
       // Fresh puzzle: clear any stale save; the new game saves on first snap.
       widget.settings.clearSave();
     }
+    // Compact tutorial banner auto-dismisses after 4 seconds.
+    _tutorialTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _showTutorialHint = false);
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _toastCtrl.dispose();
+    _tutorialTimer?.cancel();
     _trayScroll.dispose();
     // Always leave fullscreen when leaving the game screen.
     if (_fullscreen) {
@@ -351,7 +366,11 @@ class _GameScreenState extends State<GameScreen>
   /// A tray piece was dropped onto the mat (DragTarget).
   void _dropFromTray(int pieceId, Offset screenPos) {
     if (_e.phase != JigsawPhase.playing || _showPause) return;
-    final mat = _toMat(screenPos);
+    // Use the real pointer position, not the DragTarget's offset (which is
+    // the feedback's top-left, off by the grab point within the tile).
+    final dropAt = _lastDragPointer ?? screenPos;
+    _lastDragPointer = null;
+    final mat = _toMat(dropAt);
     final ids = _e.beginDrag(pieceId);
     if (ids.isEmpty) return;
     final p = _e.piece(pieceId);
@@ -663,6 +682,14 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
+  /// Ghost preview opacity by difficulty: Easy shows a clear guide
+  /// for kids, Hard keeps it subtle.
+  double _ghostOpacity(int pieceCount) => switch (pieceCount) {
+        <= 12 => 0.50,
+        <= 24 => 0.38,
+        _ => 0.22,
+      };
+
   Widget _matArea(LibraryThemeDef t) {
     final e = _e;
     return LayoutBuilder(
@@ -731,11 +758,13 @@ class _GameScreenState extends State<GameScreen>
                               children: [
                                 // Faint ghost of the finished picture: the
                                 // guide that shows what the board should become.
+                                // Opacity scales with difficulty: Easy shows a
+                                // clear guide for kids, Hard keeps it subtle.
                                 Positioned(
                                   left: 0,
                                   top: 0,
                                   child: Opacity(
-                                    opacity: 0.30,
+                                    opacity: _ghostOpacity(e.pieceCount),
                                     child: RepaintBoundary(
                                       child: CustomPaint(
                                         size: Size(
@@ -862,40 +891,42 @@ class _GameScreenState extends State<GameScreen>
                     style: Bibliophile.label(11, theme: t).copyWith(
                         color: t.ivory.withValues(alpha: 0.55))),
               ),
-              // First-play tutorial: big clear instruction until the
-              // first piece lands on the board.
-              if (e.moves == 0 && e.matPieces.isEmpty)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 28, vertical: 18),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          color: t.woodDeep.withValues(alpha: 0.88),
-                          border:
-                              Border.all(color: t.accent, width: 2),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('🧩',
-                                style: TextStyle(fontSize: 36)),
-                            const SizedBox(height: 8),
-                            Text('Drag pieces onto the board',
-                                style:
-                                    Bibliophile.display(22, theme: t),
-                                textAlign: TextAlign.center),
-                            const SizedBox(height: 4),
-                            Text('They snap into place when close!',
-                                style: Bibliophile.body(14,
+              // First-play tutorial: compact banner at the top of the mat.
+              // Dismisses on tap or after 4 seconds — never covers the board.
+              if (_showTutorialHint &&
+                  e.moves == 0 &&
+                  e.matPieces.isEmpty)
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  top: 34,
+                  child: GestureDetector(
+                    onTap: () => setState(() => _showTutorialHint = false),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        color: t.woodDeep.withValues(alpha: 0.92),
+                        border: Border.all(color: t.accent, width: 1.5),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('🧩',
+                              style: TextStyle(fontSize: 18)),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                                'Drag pieces onto the board — they snap when close! (tap to dismiss)',
+                                style: Bibliophile.body(12,
                                     theme: t,
                                     color: t.ivory
-                                        .withValues(alpha: 0.8)),
+                                        .withValues(alpha: 0.9)),
                                 textAlign: TextAlign.center),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -910,8 +941,9 @@ class _GameScreenState extends State<GameScreen>
   Widget _trayRail(LibraryThemeDef t) {
     final e = _e;
     final tray = e.trayPieces;
-    // Big friendly tray tiles: easy to see, easy to grab (RULES.md 12).
-    const tile = 96.0;
+    // Compact tray tiles: easy to grab but small enough that the
+    // board keeps comfortable margins (RULES.md 12).
+    const tile = 70.0;
     return Container(
       key: _trayKey,
       margin: const EdgeInsets.fromLTRB(12, 6, 12, 10),
@@ -969,6 +1001,11 @@ class _GameScreenState extends State<GameScreen>
                             const EdgeInsets.only(right: 6),
                         child: Draggable<int>(
                           data: p.id,
+                          // Track the real pointer so drops land under the
+                          // finger (details.offset is the feedback top-left).
+                          onDragUpdate: (d) =>
+                              _lastDragPointer = d.globalPosition,
+                          onDragEnd: (_) => _lastDragPointer = null,
                           feedback: Material(
                             color: Colors.transparent,
                             child: PieceWidget(
