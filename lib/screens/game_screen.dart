@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../cheat_menu.dart';
 import '../engine/jigsaw_engine.dart';
 import '../pictures.dart';
@@ -74,11 +75,10 @@ class _GameScreenState extends State<GameScreen>
 
   // Feedback overlays.
   final List<_Flash> _flashes = [];
-  int? _hintPieceId;
   String? _toast;
   bool _showPause = false;
   bool _celebrating = false;
-  late final AnimationController _hintPulse;
+  bool _fullscreen = false;
   late final AnimationController _toastCtrl;
 
   final _trayScroll = ScrollController();
@@ -91,9 +91,6 @@ class _GameScreenState extends State<GameScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _hintPulse = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
     _toastCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 300));
     final e = _e;
@@ -135,9 +132,12 @@ class _GameScreenState extends State<GameScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _hintPulse.dispose();
     _toastCtrl.dispose();
     _trayScroll.dispose();
+    // Always leave fullscreen when leaving the game screen.
+    if (_fullscreen) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     if (!_engineHandedOff) _e.dispose();
     super.dispose();
   }
@@ -376,44 +376,60 @@ class _GameScreenState extends State<GameScreen>
     setState(() {});
   }
 
-  void _useHint() {
-    final id = _e.useHint();
-    if (id == null) {
-      widget.audio.invalid();
-      // Tell the user why the hint didn't work.
-      _toast = _e.phase != JigsawPhase.playing
-          ? 'Hints work during play'
-          : 'No hints left';
-      _toastCtrl.forward(from: 0);
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) _toastCtrl.reverse();
-      });
-      return;
-    }
-    widget.audio.hint();
-    // Show a clear toast so the hint is unmissable.
-    _toast = 'Try the glowing piece in the tray!';
+  /// Show a short floating message.
+  void _showToast(String msg) {
+    _toast = msg;
     _toastCtrl.forward(from: 0);
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) _toastCtrl.reverse();
     });
-    setState(() => _hintPieceId = id);
-    // Scroll the tray to the highlighted piece.
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (!mounted) return;
-      final idx = _e.trayPieces.indexWhere((p) => p.id == id);
-      if (idx >= 0 && _trayScroll.hasClients) {
-        _trayScroll.animateTo(
-          (idx * 76.0).clamp(0.0, _trayScroll.position.maxScrollExtent),
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-    // Clear the highlight when the piece leaves the tray.
-    Future.delayed(const Duration(seconds: 6), () {
-      if (mounted && _hintPieceId == id) setState(() => _hintPieceId = null);
-    });
+  }
+
+  /// Center of a piece in mat units (for the snap-flash ring).
+  Offset _pieceCenter(JigsawPiece p) => Offset(
+        p.x + JigsawEngine.tabMargin + JigsawEngine.cell / 2,
+        p.y + JigsawEngine.tabMargin + JigsawEngine.cell / 2,
+      );
+
+  void _useHint() {
+    if (_e.phase != JigsawPhase.playing) {
+      widget.audio.invalid();
+      _showToast('Hints work during play');
+      setState(() {});
+      return;
+    }
+    if (_e.hintsLeft <= 0) {
+      widget.audio.invalid();
+      _showToast('No hints left');
+      setState(() {});
+      return;
+    }
+    final id = _e.useHint();
+    if (id == null) {
+      widget.audio.invalid();
+      _showToast('Every piece is placed already!');
+      setState(() {});
+      return;
+    }
+    // The engine just auto-placed the piece: make it unmissable.
+    widget.audio.hint();
+    _showSnapFlash(_pieceCenter(_e.piece(id)));
+    _showToast(_e.hintsLeft <= 9000
+        ? 'Hint placed a piece! ${_e.hintsLeft} left'
+        : 'Hint placed a piece for you!');
+    setState(() {});
+  }
+
+  /// Toggle immersive fullscreen (hides status + nav bars).
+  Future<void> _toggleFullscreen() async {
+    widget.audio.click();
+    _fullscreen = !_fullscreen;
+    if (_fullscreen) {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } else {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
+    if (mounted) setState(() {});
   }
 
   void _togglePause() {
@@ -517,7 +533,7 @@ class _GameScreenState extends State<GameScreen>
             e.mode == JigsawMode.relaxed ? 0 : e.elapsedMs);
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         gradient: LinearGradient(
@@ -544,45 +560,49 @@ class _GameScreenState extends State<GameScreen>
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Icon(Icons.timer,
-                        size: 14,
-                        color: t.ivory.withValues(alpha: 0.7)),
-                    const SizedBox(width: 4),
-                    Text(
-                      e.mode == JigsawMode.relaxed ? 'relaxed' : timeText,
-                      style: Bibliophile.body(13,
-                          theme: t,
-                          color: (timedOut && e.timeLeftMs < 60000)
-                              ? t.lampGlow
-                              : t.ivory.withValues(alpha: 0.85)),
-                    ),
-                    const SizedBox(width: 10),
-                    Icon(Icons.pie_chart,
-                        size: 14,
-                        color: t.ivory.withValues(alpha: 0.7)),
-                    const SizedBox(width: 4),
-                    Text('${(e.completion * 100).round()}%',
+                // Scale-down guard: 5 buttons fit narrow phones without
+                // ever overflowing the stats line.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    children: [
+                      Icon(Icons.timer,
+                          size: 13,
+                          color: t.ivory.withValues(alpha: 0.7)),
+                      const SizedBox(width: 3),
+                      Text(
+                        e.mode == JigsawMode.relaxed ? 'relaxed' : timeText,
                         style: Bibliophile.body(13,
                             theme: t,
-                            color: t.ivory.withValues(alpha: 0.85))),
-                  ],
+                            color: (timedOut && e.timeLeftMs < 60000)
+                                ? t.lampGlow
+                                : t.ivory.withValues(alpha: 0.85)),
+                      ),
+                      Text(' · ${(e.completion * 100).round()}%',
+                          style: Bibliophile.body(13,
+                              theme: t,
+                              color: t.ivory.withValues(alpha: 0.85))),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
           BrassIconButton(
-              icon: Icons.pause, size: 46, theme: t, onTap: _togglePause),
-          const SizedBox(width: 8),
+              icon: _showPause ? Icons.play_arrow : Icons.pause,
+              size: 40,
+              theme: t,
+              onTap: _togglePause),
+          const SizedBox(width: 6),
           Stack(
             children: [
               BrassIconButton(
                 icon: Icons.lightbulb_outline,
-                size: 46,
+                size: 40,
                 theme: t,
                 dimmed: e.hintsLeft <= 0,
-                onTap: e.hintsLeft <= 0 ? null : _useHint,
+                onTap: _useHint,
               ),
               if (e.mode != JigsawMode.relaxed)
                 Positioned(
@@ -601,12 +621,12 @@ class _GameScreenState extends State<GameScreen>
                 ),
             ],
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           BrassIconButton(
             icon: widget.settings.showReference
                 ? Icons.image
                 : Icons.image_not_supported_outlined,
-            size: 46,
+            size: 40,
             theme: t,
             onTap: () {
               widget.audio.click();
@@ -615,10 +635,17 @@ class _GameScreenState extends State<GameScreen>
               setState(() {});
             },
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
+          BrassIconButton(
+            icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+            size: 40,
+            theme: t,
+            onTap: _toggleFullscreen,
+          ),
+          const SizedBox(width: 6),
           BrassIconButton(
               icon: Icons.zoom_out_map,
-              size: 46,
+              size: 40,
               theme: t,
               onTap: () {
                 widget.audio.click();
@@ -650,6 +677,8 @@ class _GameScreenState extends State<GameScreen>
           _fitPuzzle(areaW, areaH);
         }
         final ghost = _pieceDragging ? e.ghostPreview() : null;
+        // Glowing ring on the true cell when the dragged piece is close.
+        final nearCell = _pieceDragging ? e.nearTrueCell() : null;
         return Container(
           key: _matKey,
           margin: const EdgeInsets.symmetric(horizontal: 12),
@@ -700,6 +729,49 @@ class _GameScreenState extends State<GameScreen>
                             height: e.puzzleH,
                             child: Stack(
                               children: [
+                                // Faint ghost of the finished picture: the
+                                // guide that shows what the board should become.
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  child: Opacity(
+                                    opacity: 0.30,
+                                    child: RepaintBoundary(
+                                      child: CustomPaint(
+                                        size: Size(
+                                            e.puzzleW, e.puzzleH),
+                                        painter: _GhostPicturePainter(
+                                            e.pictureId),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                // "Almost there" ring on the true cell.
+                                if (nearCell != null)
+                                  Positioned(
+                                    left: nearCell.dx,
+                                    top: nearCell.dy,
+                                    child: Container(
+                                      width: JigsawEngine.cell +
+                                          JigsawEngine.tabMargin * 2,
+                                      height: JigsawEngine.cell +
+                                          JigsawEngine.tabMargin * 2,
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(20),
+                                        border: Border.all(
+                                            color: t.lampGlow, width: 6),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: t.lampGlow.withValues(
+                                                alpha: 0.55),
+                                            blurRadius: 18,
+                                            spreadRadius: 3,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 for (final p in e.matPieces)
                                   Positioned(
                                     left: p.x,
@@ -782,6 +854,52 @@ class _GameScreenState extends State<GameScreen>
                     ),
                   ),
                 ),
+              // A small label so the area's purpose is unmistakable.
+              Positioned(
+                left: 12,
+                top: 8,
+                child: Text('PUZZLE BOARD',
+                    style: Bibliophile.label(11, theme: t).copyWith(
+                        color: t.ivory.withValues(alpha: 0.55))),
+              ),
+              // First-play tutorial: big clear instruction until the
+              // first piece lands on the board.
+              if (e.moves == 0 && e.matPieces.isEmpty)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 28, vertical: 18),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          color: t.woodDeep.withValues(alpha: 0.88),
+                          border:
+                              Border.all(color: t.accent, width: 2),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('🧩',
+                                style: TextStyle(fontSize: 36)),
+                            const SizedBox(height: 8),
+                            Text('Drag pieces onto the board',
+                                style:
+                                    Bibliophile.display(22, theme: t),
+                                textAlign: TextAlign.center),
+                            const SizedBox(height: 4),
+                            Text('They snap into place when close!',
+                                style: Bibliophile.body(14,
+                                    theme: t,
+                                    color: t.ivory
+                                        .withValues(alpha: 0.8)),
+                                textAlign: TextAlign.center),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -792,8 +910,8 @@ class _GameScreenState extends State<GameScreen>
   Widget _trayRail(LibraryThemeDef t) {
     final e = _e;
     final tray = e.trayPieces;
-    // Tray piece size: fit ~5 across, min 48px touch target (RULES.md 12).
-    const tile = 76.0;
+    // Big friendly tray tiles: easy to see, easy to grab (RULES.md 12).
+    const tile = 96.0;
     return Container(
       key: _trayKey,
       margin: const EdgeInsets.fromLTRB(12, 6, 12, 10),
@@ -838,14 +956,11 @@ class _GameScreenState extends State<GameScreen>
                     itemCount: tray.length,
                     itemBuilder: (_, i) {
                       final p = tray[i];
-                      final highlighted = _hintPieceId == p.id;
                       final w = _TrayPiece(
                         engine: e,
                         pieceId: p.id,
                         theme: t,
                         size: tile,
-                        highlighted: highlighted,
-                        pulse: _hintPulse,
                         showMark:
                             widget.settings.marksFor(e.pieceCount),
                       );
@@ -1034,14 +1149,12 @@ class _ThumbPainter extends CustomPainter {
   bool shouldRepaint(covariant _ThumbPainter old) => old.id != id;
 }
 
-/// A tray tile: shrunken piece with a lamplight hint ring when highlighted.
+/// A tray tile: a big, easy-to-grab shrunken piece.
 class _TrayPiece extends StatelessWidget {
   final JigsawEngine engine;
   final int pieceId;
   final LibraryThemeDef theme;
   final double size;
-  final bool highlighted;
-  final AnimationController pulse;
   final bool showMark;
 
   const _TrayPiece({
@@ -1049,8 +1162,6 @@ class _TrayPiece extends StatelessWidget {
     required this.pieceId,
     required this.theme,
     required this.size,
-    required this.highlighted,
-    required this.pulse,
     required this.showMark,
   });
 
@@ -1059,7 +1170,7 @@ class _TrayPiece extends StatelessWidget {
     // Scale the piece down to fit the tile while keeping ≥48px touch target.
     const full = JigsawEngine.cell + JigsawEngine.tabMargin * 2;
     final s = size / full;
-    Widget w = SizedBox(
+    return SizedBox(
       width: size,
       height: size,
       child: Transform.scale(
@@ -1077,21 +1188,23 @@ class _TrayPiece extends StatelessWidget {
         ),
       ),
     );
-    if (highlighted) {
-      w = AnimatedBuilder(
-        animation: pulse,
-        builder: (_, _) => CustomPaint(
-          foregroundPainter:
-              HintRingPainter(glow: theme.lampGlow),
-          child: Transform.scale(
-            scale: 1.0 + pulse.value * 0.06,
-            child: w,
-          ),
-        ),
-      );
-    }
-    return w;
   }
+}
+
+/// Faint full-picture guide painted on the mat: the finished puzzle as a
+/// low-opacity watermark so the player can see the goal.
+class _GhostPicturePainter extends CustomPainter {
+  final int id;
+  _GhostPicturePainter(this.id);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // The picture maps 1:1 onto the mat rect (0,0)->(puzzleW,puzzleH).
+    PictureFolio.painter(id).paint(canvas, size);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GhostPicturePainter old) => old.id != id;
 }
 
 /// Expanding warm ring shown at a snap point.

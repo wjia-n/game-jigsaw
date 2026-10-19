@@ -35,7 +35,7 @@ class LibraryAudio {
 
   // async work checks it still owns the latest generation before touching
   // the player, so overlapping requests can never desync the music.
-  bool _musicBusy = false;
+  final bool _musicBusy = false;
   String? _currentTrack; // 'menu' | 'game' | null
   bool _pausedByLifecycle = false;
   bool _disposed = false;

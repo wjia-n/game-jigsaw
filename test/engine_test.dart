@@ -103,14 +103,67 @@ void main() {
     e.dispose();
   });
 
-  test('hint returns a tray piece and banks +30s penalty', () {
+  test('hint auto-places a piece and banks +30s penalty', () {
     final e = make();
     e.start();
+    final before = e.pieces.where((p) => p.locked).length;
     final id = e.useHint();
     expect(id, isNotNull);
-    expect(e.piece(id!).inTray, isTrue);
+    final p = e.piece(id!);
+    expect(p.inTray, isFalse);
+    expect(p.locked, isTrue);
+    expect(
+        Offset(p.x, p.y),
+        Offset(p.col * JigsawEngine.cell - JigsawEngine.tabMargin,
+            p.row * JigsawEngine.cell - JigsawEngine.tabMargin));
+    expect(e.pieces.where((q) => q.locked).length, before + 1);
     expect(e.hintsUsed, 1);
     expect(e.hintPenaltyMs, 30000);
+    e.dispose();
+  });
+
+  test('hint budget: no more auto-places once spent', () {
+    final e = make();
+    e.start();
+    e.hintBudget = 1;
+    expect(e.useHint(), isNotNull);
+    expect(e.useHint(), isNull);
+    expect(e.hintsLeft, 0);
+    e.dispose();
+  });
+
+  test('difficulty snap radii: easy magnetic, medium generous, hard classic',
+      () {
+    expect(JigsawEngine.snapForPieceCount(12), 0.55);
+    expect(JigsawEngine.snapForPieceCount(24), 0.40);
+    expect(JigsawEngine.snapForPieceCount(48), 0.28);
+    expect(JigsawEngine.parMs(12), 120000);
+  });
+
+  test('pause freezes the game clock', () async {
+    final e = make();
+    e.start();
+    e.noteFirstTouch();
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    final t1 = e.elapsedMs;
+    expect(t1, greaterThan(0));
+    e.pauseGame();
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    expect(e.elapsedMs, t1); // frozen while paused
+    e.resumeGame();
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    expect(e.elapsedMs, greaterThan(t1)); // running again
+    e.dispose();
+  });
+
+  test('pause/resume: phase flips and back', () {
+    final e = make();
+    e.start();
+    expect(e.phase, JigsawPhase.playing);
+    e.pauseGame();
+    expect(e.phase, JigsawPhase.paused);
+    e.resumeGame();
+    expect(e.phase, JigsawPhase.playing);
     e.dispose();
   });
 

@@ -37,7 +37,7 @@ class JigsawSettings extends ChangeNotifier {
   bool generousSnap = false;
   bool showReference = true;
   int lastMode = 0; // 0 classic, 1 timed, 2 relaxed, 3 daily
-  int lastPieceCount = 48;
+  int lastPieceCount = 12; // Easy by default
   int lastPictureId = 0;
   bool isPro = true; // everything unlocked — no Pro version
   int wins = 0;
@@ -110,7 +110,7 @@ class JigsawSettings extends ChangeNotifier {
     generousSnap = p.getBool(_kGenerousSnap) ?? false;
     showReference = p.getBool(_kReference) ?? true;
     lastMode = (p.getInt(_kLastMode) ?? 0).clamp(0, 3);
-    lastPieceCount = p.getInt(_kLastCount) ?? 48;
+    lastPieceCount = p.getInt(_kLastCount) ?? 12;
     lastPictureId = p.getInt(_kLastPicture) ?? 0;
     isPro = true; // everything unlocked
     wins = p.getInt(_kWins) ?? 0;

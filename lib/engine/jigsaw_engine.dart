@@ -179,11 +179,21 @@ class JigsawEngine extends ChangeNotifier {
 
   // ---------------------------------------------------------- par / stars
   static int parMs(int pieceCount) => switch (pieceCount) {
+        12 => 2 * 60 * 1000,
         24 => 3 * 60 * 1000,
         48 => 8 * 60 * 1000,
         96 => 20 * 60 * 1000,
         192 => 45 * 60 * 1000,
         _ => 8 * 60 * 1000,
+      };
+
+  /// Generous snap radius per difficulty (fraction of the piece edge):
+  /// Easy (12) snaps almost magnetically, Medium (24) is forgiving,
+  /// Hard (48) keeps the classic radius.
+  static double snapForPieceCount(int pieceCount) => switch (pieceCount) {
+        12 => 0.55,
+        24 => 0.40,
+        _ => 0.28,
       };
 
   int get timeLimitMs => mode == JigsawMode.timed ? parMs(pieceCount) : 0;
@@ -546,13 +556,8 @@ class JigsawEngine extends ChangeNotifier {
     }
 
     notifyListeners();
-    final won = largestClusterSize == pieces.length || isComplete;
-    if (won && !victoryAnnounced) {
-      victoryAnnounced = true;
-      phase = JigsawPhase.victory;
-      _clockRunning = false;
-      onVictory?.call();
-    }
+    _checkVictory();
+    final won = phase == JigsawPhase.victory;
     return DropResult(
       snapped: snapped || lockedNow > 0,
       mergedPieceIds: merged,
@@ -618,15 +623,18 @@ class JigsawEngine extends ChangeNotifier {
   }
 
   // ----------------------------------------------------------------- hint
-  /// The librarian's suggestion (RULES.md Section 11):
+  /// The librarian's hand: the hint AUTO-PLACES one loose piece exactly
+  /// into its true cell and locks it, so every hint visibly advances the
+  /// puzzle. Priority:
   /// 1. a tray piece that mates with the selected cluster;
   /// 2. else a random unplaced edge piece;
   /// 3. else a random loose piece.
-  /// Returns the piece id to highlight, or null when the budget is spent.
+  /// Returns the placed piece id, or null when the budget is spent or no
+  /// unlocked piece remains.
   int? useHint() {
     if (phase != JigsawPhase.playing) return null;
     if (mode != JigsawMode.relaxed && hintsUsed >= hintBudget) return null;
-    int? pick;
+    JigsawPiece? pick;
     // 1. neighbor of the selected cluster, sitting in the tray.
     if (selectedPieceId != null) {
       final sel = piece(selectedPieceId!);
@@ -635,33 +643,76 @@ class JigsawEngine extends ChangeNotifier {
         if (!p.inTray) continue;
         for (final n in _gridNeighbors(p)) {
           if (piece(n).clusterId == selCid) {
-            pick = p.id;
+            pick = p;
             break;
           }
         }
         if (pick != null) break;
       }
     }
-    // 2. random unplaced edge piece.
-    pick ??= _randomLoose(preferEdge: true);
-    // 3. any random loose piece.
-    pick ??= _randomLoose(preferEdge: false);
+    // 2. random unlocked edge piece (tray first).
+    pick ??= _randomLoosePiece(preferEdge: true);
+    // 3. any random unlocked piece.
+    pick ??= _randomLoosePiece(preferEdge: false);
     if (pick == null) return null;
+    // Never strand an in-flight drag: cancel it first (restores positions),
+    // then seat the picked piece exactly where it belongs.
+    if (_dragIds.isNotEmpty) cancelDrag();
+    final target = pick;
+    final t = _truePos(target);
+    target.x = t.dx;
+    target.y = t.dy;
+    target.inTray = false;
+    if (!target.locked) {
+      target.locked = true;
+      _detachFromCluster(target);
+    }
+    moves++;
     if (mode != JigsawMode.relaxed) {
       hintsUsed++;
       hintPenaltyMs += 30000; // +30s per hint (RULES.md Section 7)
     }
+    onSnap?.call();
+    _checkFrameComplete();
+    onAutosave?.call();
     notifyListeners();
-    return pick;
+    _checkVictory();
+    return target.id;
   }
 
-  int? _randomLoose({required bool preferEdge}) {
+  JigsawPiece? _randomLoosePiece({required bool preferEdge}) {
     final rng = Random();
-    final loose = pieces.where((p) => p.inTray).toList();
-    if (loose.isEmpty) return null;
-    final edge = loose.where((p) => p.isEdgeOf(rows, cols)).toList();
-    final pool = (preferEdge && edge.isNotEmpty) ? edge : loose;
-    return pool[rng.nextInt(pool.length)].id;
+    // Prefer pieces still in the tray (the visible win), then loose mat pieces.
+    final tray = pieces.where((p) => p.inTray).toList();
+    final mat = pieces.where((p) => !p.inTray && !p.locked).toList();
+    final pool = tray.isNotEmpty ? tray : mat;
+    if (pool.isEmpty) return null;
+    final edge = pool.where((p) => p.isEdgeOf(rows, cols)).toList();
+    final from = (preferEdge && edge.isNotEmpty) ? edge : pool;
+    return from[rng.nextInt(from.length)];
+  }
+
+  /// While dragging, the true cell of the anchor when the anchor is within
+  /// a generous "almost there" radius (2.5x the lock radius). The UI paints
+  /// a glowing ring there so the player can SEE exactly where to drop.
+  Offset? nearTrueCell() {
+    if (_dragIds.isEmpty || phase != JigsawPhase.playing) return null;
+    final p = piece(_dragIds.first);
+    final t = _truePos(p);
+    final d = (Offset(p.x, p.y) - t).distance;
+    if (d <= snapRadiusFraction * cell * 2.5) return t;
+    return null;
+  }
+
+  /// Shared victory transition (piece drops and hints both reach it).
+  void _checkVictory() {
+    final won = largestClusterSize == pieces.length || isComplete;
+    if (won && !victoryAnnounced) {
+      victoryAnnounced = true;
+      phase = JigsawPhase.victory;
+      _clockRunning = false;
+      onVictory?.call();
+    }
   }
 
   int get hintsLeft =>

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import '../engine/jigsaw_engine.dart';
 import '../pictures.dart';
@@ -89,9 +91,8 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 
   (int, int) _gridFor(int count) => switch (count) {
+        12 => (4, 3),
         24 => (6, 4),
-        96 => (12, 8),
-        192 => (16, 12),
         _ => (8, 6),
       };
 
@@ -110,7 +111,11 @@ class _MenuScreenState extends State<MenuScreen> {
       seed: seed,
       mode: _mode,
       pieceCount: _count,
-      snapRadiusFraction: widget.settings.snapRadiusFraction,
+      // Easy pieces snap almost magnetically; generous setting only adds more.
+      snapRadiusFraction: max(
+        widget.settings.snapRadiusFraction,
+        JigsawEngine.snapForPieceCount(_count),
+      ),
     );
   }
 
@@ -473,16 +478,16 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 
   static const _folios = [
-    (24, 'Botanical Folio', Color(0xFF3E5C43)),
-    (48, "Cartographer's Study", Color(0xFF6E2A30)),
-    (96, 'Oxford Quadrangle', Color(0xFFC88A2E)),
-    (192, 'Antiquarian Vault', Color(0xFF232B3A)),
+    (12, 'Easy Meadow', Color(0xFF3E5C43)),
+    (24, 'Medium Study', Color(0xFF6E2A30)),
+    (48, 'Hard Vault', Color(0xFF232B3A)),
   ];
 
   Widget _folioStack(LibraryThemeDef t) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('CHOOSE YOUR FOLIO', style: Bibliophile.label(13, theme: t)),
+          Text('DIFFICULTY — START EASY',
+              style: Bibliophile.label(13, theme: t)),
           const SizedBox(height: 8),
           for (final f in _folios) _spine(t, f.$1, f.$2, f.$3),
         ],

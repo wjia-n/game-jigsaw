@@ -196,9 +196,12 @@ class _SendScreenState extends State<_SendScreen> {
       // XFile.fromData works on every platform — on web, share_plus
       // downloads the file in the browser.
       final xfile = SaveTransfer.payloadToXFile(payload, widget.gameSlug);
-      await Share.shareXFiles(
-        [xfile],
-        text: 'My ${widget.gameSlug} game save — open it in the game on your new phone.',
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [xfile],
+          text:
+              'My ${widget.gameSlug} game save — open it in the game on your new phone.',
+        ),
       );
     } catch (_) {
       if (!mounted) return;
