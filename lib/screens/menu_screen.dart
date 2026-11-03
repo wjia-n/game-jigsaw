@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../engine/jigsaw_engine.dart';
 import '../pictures.dart';
@@ -279,7 +280,7 @@ class _MenuScreenState extends State<MenuScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _smallLink(t, s.isPro ? 'PRO ACTIVE ✓' : 'GO PRO',
+                        _smallLink(t, s.isPro ? 'PRO ACTIVE ✓' : defaultTargetPlatform == TargetPlatform.iOS ? '⭐ Gold Star' : 'GO PRO',
                             _goPro),
                         const SizedBox(width: 18),
                         _smallLink(t, 'THEMES', () {
