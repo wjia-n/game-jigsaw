@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../cheat_menu.dart';
 import '../engine/jigsaw_engine.dart';
@@ -371,10 +372,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   const SizedBox(height: 10),
-                  _SectionTitle('Jigsaw PRO', t),
+                  // iOS variant: Gold Star wording (Android keeps the PRO wording).
+                  _SectionTitle(
+                      defaultTargetPlatform == TargetPlatform.iOS
+                          ? 'Gold Star'
+                          : 'Jigsaw PRO',
+                      t),
                   SettingRow(
                     theme: t,
-                    label: s.isPro ? 'PRO active ✦' : 'Unlock PRO',
+                    label: defaultTargetPlatform == TargetPlatform.iOS
+                        ? '⭐ Gold Star'
+                        : (s.isPro ? 'PRO active ✦' : 'Unlock PRO'),
                     control: GestureDetector(
                       onTap: _goPro,
                       child: Container(
@@ -389,7 +397,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               color: t.accentLight, width: 2),
                         ),
                         child: Text(
-                          s.isPro ? '✦ PRO' : 'View',
+                          // iOS variant: view the Gold Star screen (Android keeps the PRO label).
+                          defaultTargetPlatform == TargetPlatform.iOS
+                              ? 'View'
+                              : (s.isPro ? '✦ PRO' : 'View'),
                           style: Bibliophile.label(13,
                               theme: t,
                               color: s.isPro ? t.woodDeep : t.ivory),

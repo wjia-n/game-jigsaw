@@ -280,7 +280,7 @@ class _MenuScreenState extends State<MenuScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _smallLink(t, s.isPro ? 'PRO ACTIVE ✓' : defaultTargetPlatform == TargetPlatform.iOS ? '⭐ Gold Star' : 'GO PRO',
+                        _smallLink(t, defaultTargetPlatform == TargetPlatform.iOS ? '⭐ Gold Star' : (s.isPro ? 'PRO ACTIVE ✓' : 'GO PRO'),
                             _goPro),
                         const SizedBox(width: 18),
                         _smallLink(t, 'THEMES', () {
